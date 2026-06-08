@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,13 +29,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +54,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -106,7 +115,16 @@ fun CameraScreen(navController: NavController) {
 
             ScanOverlay(
                 palletId = palletId,
-                onPalletIdChange = { palletId = it }
+                onPalletIdChange = { palletId = it },
+                onSubmit = { id ->
+                    if (id.isNotBlank() && !hasNavigated) {
+                        hasNavigated = true
+                        val encoded = java.net.URLEncoder.encode(id.trim(), "UTF-8")
+                        navController.navigate(Screen.Result.createRoute(encoded)) {
+                            popUpTo(Screen.Camera.route) { inclusive = true }
+                        }
+                    }
+                }
             )
         } else {
             PermissionDeniedContent(onRequest = {
@@ -164,10 +182,13 @@ private fun CameraPreview(onQrDetected: (String) -> Unit) {
 @Composable
 private fun ScanOverlay(
     palletId: String,
-    onPalletIdChange: (String) -> Unit
+    onPalletIdChange: (String) -> Unit,
+    onSubmit: (String) -> Unit
 ) {
     val scanSize = 260.dp
+    val focusManager = LocalFocusManager.current
 
+    // Scanning frame
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Box(
             modifier = Modifier
@@ -201,30 +222,99 @@ private fun ScanOverlay(
         }
     }
 
+    // Bottom area: hint text + card input
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 48.dp),
+                .padding(horizontal = 20.dp, vertical = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-        Text(
-            text = "Align QR code within the frame",
-            modifier = Modifier
-                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            color = Color.White,
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center
-        )
-            Spacer(modifier = Modifier.height(16.dp))
-            OutlinedTextField(
-                value = palletId,
-                onValueChange = onPalletIdChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Pallet ID") },
-                singleLine = true
+            // Hint label
+            Text(
+                text = "Align QR code within the frame",
+                modifier = Modifier
+                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Card input row
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color.White.copy(alpha = 0.12f)
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = palletId,
+                        onValueChange = onPalletIdChange,
+                        modifier = Modifier.weight(1f),
+                        label = {
+                            Text(
+                                text = "Pallet ID",
+                                color = Color.White.copy(alpha = 0.7f)
+                            )
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions.Default.copy(
+                            imeAction = ImeAction.Go
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onGo = {
+                                focusManager.clearFocus()
+                                onSubmit(palletId)
+                            }
+                        ),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color(0xFFFF8000),
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.4f),
+                            cursorColor = Color(0xFFFF8000),
+                            focusedLabelColor = Color(0xFFFF8000),
+                            unfocusedLabelColor = Color.White.copy(alpha = 0.6f)
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Button(
+                        onClick = {
+                            focusManager.clearFocus()
+                            onSubmit(palletId)
+                        },
+                        enabled = palletId.isNotBlank(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFFF8000),
+                            contentColor = Color.White,
+                            disabledContainerColor = Color.White.copy(alpha = 0.2f),
+                            disabledContentColor = Color.White.copy(alpha = 0.4f)
+                        ),
+                        modifier = Modifier.size(width = 80.dp, height = 56.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Submit",
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }
