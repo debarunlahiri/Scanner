@@ -34,6 +34,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -73,6 +74,7 @@ fun CameraScreen(navController: NavController) {
         )
     }
     var hasNavigated by remember { mutableStateOf(false) }
+    var palletId by remember { mutableStateOf("") }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -102,7 +104,10 @@ fun CameraScreen(navController: NavController) {
                 }
             )
 
-            ScanOverlay()
+            ScanOverlay(
+                palletId = palletId,
+                onPalletIdChange = { palletId = it }
+            )
         } else {
             PermissionDeniedContent(onRequest = {
                 permissionLauncher.launch(Manifest.permission.CAMERA)
@@ -157,7 +162,10 @@ private fun CameraPreview(onQrDetected: (String) -> Unit) {
 }
 
 @Composable
-private fun ScanOverlay() {
+private fun ScanOverlay(
+    palletId: String,
+    onPalletIdChange: (String) -> Unit
+) {
     val scanSize = 260.dp
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -194,16 +202,30 @@ private fun ScanOverlay() {
     }
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         Text(
             text = "Align QR code within the frame",
             modifier = Modifier
-                .padding(bottom = 80.dp)
                 .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             color = Color.White,
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center
         )
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedTextField(
+                value = palletId,
+                onValueChange = onPalletIdChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Pallet ID") },
+                singleLine = true
+            )
+        }
     }
 }
 
