@@ -12,29 +12,31 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = OrangePrimaryDark,
-    onPrimary = OnPrimaryDark,
-    primaryContainer = OrangeDarkContainer,
-    onPrimaryContainer = OrangeLight,
-    secondary = OrangeSecondaryDark,
-    onSecondary = Color.Black,
-    secondaryContainer = Color(0xFFCC7A00),
-    background = BackgroundDark,
-    surface = SurfaceDark,
-    onSurface = OnSurfaceDark
+    primary             = NavyPrimaryNight,
+    onPrimary           = OnNavyPrimaryNight,
+    primaryContainer    = NavyPrimaryNightLight,
+    onPrimaryContainer  = OnNavyPrimaryNight,
+    secondary           = AccentBlueDark,        // bright blue accent for dark
+    onSecondary         = Color(0xFF0D1B2A),
+    secondaryContainer  = AccentBlue.copy(alpha = 0.2f),
+    onSecondaryContainer= AccentBlueDark,
+    background          = BackgroundDark,
+    surface             = SurfaceDark,
+    onSurface           = OnSurfaceDark
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = OrangePrimary,
-    onPrimary = OnPrimaryLight,
-    primaryContainer = OrangeLight,
-    onPrimaryContainer = OrangeDark,
-    secondary = OrangeSecondary,
-    onSecondary = Color.White,
-    secondaryContainer = OrangeSecondaryLight,
-    background = BackgroundLight,
-    surface = SurfaceLight,
-    onSurface = OnSurfaceLight
+    primary             = NavyPrimary,
+    onPrimary           = OnNavyPrimary,
+    primaryContainer    = NavyPrimaryLight,
+    onPrimaryContainer  = OnNavyPrimary,
+    secondary           = AccentBlue,            // bright blue accent for light
+    onSecondary         = Color.White,
+    secondaryContainer  = AccentBlueLight,
+    onSecondaryContainer= NavyPrimary,
+    background          = BackgroundLight,
+    surface             = SurfaceLight,
+    onSurface           = OnSurfaceLight
 )
 
 @Composable
@@ -49,7 +51,7 @@ fun ScannerTheme(
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
         darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+        else      -> LightColorScheme
     }
 
     MaterialTheme(

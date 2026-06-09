@@ -93,9 +93,8 @@ private val IDX_W: Dp     = 46.dp
 private val CHK_W: Dp     = 46.dp
 private val ACT_W: Dp     = 70.dp
 
-// ─── Always-fixed colours ──────────────────────────────────────────────────────
-private val AccentOrange  = Color(0xFFFF8000)
-private val PalletBlue    = Color(0xFF1565C0)
+// AccentOrange removed — accent is now MaterialTheme.colorScheme.secondary (blue)
+private val PalletBlue = Color(0xFF1565C0)  // used for pallet chip and checkbox tint
 
 // ─── Theme-adaptive colours ────────────────────────────────────────────────────
 private data class TableColors(
@@ -148,7 +147,15 @@ private fun tableColors(): TableColors {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ResultScreen(navController: NavController, qrData: String) {
-    ConfigureSystemBars(statusBarColor = MaterialTheme.colorScheme.primary, lightIcons = true)
+    val isDark = isSystemInDarkTheme()
+    val tc = tableColors()
+    // Use same navy-blue as table header — unifies AppBar with the table
+    val appBarContainer = tc.headerBg
+    val appBarContent   = tc.headerTxt
+    ConfigureSystemBars(
+        statusBarColor = appBarContainer,
+        lightIcons = true   // navy is always dark enough for white icons
+    )
 
     val viewModel: ResultViewModel = viewModel { ResultViewModel(qrData) }
     val state = viewModel.uiState.value
@@ -184,16 +191,17 @@ fun ResultScreen(navController: NavController, qrData: String) {
                             Icon(
                                 imageVector = Icons.Filled.FileDownload,
                                 contentDescription = "Download Excel",
-                                tint = MaterialTheme.colorScheme.onPrimary,
+                                tint = appBarContent,
                                 modifier = Modifier.size(26.dp)
                             )
                         }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                    containerColor = appBarContainer,
+                    titleContentColor = appBarContent,
+                    navigationIconContentColor = appBarContent,
+                    actionIconContentColor = appBarContent
                 )
             )
         },
@@ -217,14 +225,17 @@ fun ResultScreen(navController: NavController, qrData: String) {
 
 @Composable
 private fun LoadingContent() {
+    val isDark = isSystemInDarkTheme()
+    val spinnerColor = if (isDark) Color.White else MaterialTheme.colorScheme.primary
+    val textColor    = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
     Column(
         Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, strokeWidth = 4.dp)
+        CircularProgressIndicator(color = spinnerColor, strokeWidth = 4.dp)
         Spacer(Modifier.height(16.dp))
-        Text("Loading table…", style = MaterialTheme.typography.titleMedium)
+        Text("Loading table…", style = MaterialTheme.typography.titleMedium, color = textColor)
     }
 }
 
@@ -283,7 +294,7 @@ private fun TableContent(state: ResultUiState.Success, context: Context) {
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .background(
-                            if (selectionMode) AccentOrange else Color.White.copy(alpha = 0.15f)
+                            if (selectionMode) MaterialTheme.colorScheme.secondary else Color.White.copy(alpha = 0.15f)
                         )
                         .clickable {
                             selectionMode = !selectionMode
@@ -436,8 +447,8 @@ private fun SelectionBar(
                 onClick = onCopySelected,
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AccentOrange,
-                    contentColor = Color.White
+                    containerColor = MaterialTheme.colorScheme.secondary,
+                    contentColor = MaterialTheme.colorScheme.onSecondary
                 ),
                 modifier = Modifier.height(34.dp)
             ) {
@@ -521,7 +532,7 @@ private fun CheckboxHeaderCell(allSelected: Boolean, tc: TableColors, onToggle: 
         Icon(
             imageVector = if (allSelected) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
             contentDescription = "Select All",
-            tint = if (allSelected) AccentOrange else tc.headerTxt.copy(alpha = 0.7f),
+            tint = if (allSelected) MaterialTheme.colorScheme.secondary else tc.headerTxt.copy(alpha = 0.7f),
             modifier = Modifier.size(22.dp)
         )
     }
@@ -656,7 +667,7 @@ private fun DataRow(
                 Icon(
                     imageVector = Icons.Filled.ContentCopy,
                     contentDescription = "Copy Pallet ID",
-                    tint = AccentOrange,
+                    tint = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -668,13 +679,17 @@ private fun DataRow(
 
 @Composable
 private fun PalletChip(palletId: String, isSelected: Boolean, onCopy: () -> Unit) {
-    val chipColor = if (isSelected) PalletBlue else PalletBlue.copy(alpha = 0.85f)
+    val isDark = isSystemInDarkTheme()
+    // Dark mode: bright accent text (readable on dark row bg)
+    // Light mode: classic navy blue
+    val chipAccent = if (isDark) MaterialTheme.colorScheme.secondary else PalletBlue
+    val chipBg     = chipAccent.copy(alpha = if (isSelected) 0.25f else 0.12f)
 
     Row(
         modifier = Modifier
             .padding(horizontal = 6.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(chipColor.copy(alpha = if (isSelected) 0.18f else 0.1f))
+            .background(chipBg)
             .padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -682,7 +697,7 @@ private fun PalletChip(palletId: String, isSelected: Boolean, onCopy: () -> Unit
             text = palletId,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = chipColor,
+            color = chipAccent,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.widthIn(max = 92.dp)
@@ -692,7 +707,7 @@ private fun PalletChip(palletId: String, isSelected: Boolean, onCopy: () -> Unit
             modifier = Modifier
                 .size(22.dp)
                 .clip(CircleShape)
-                .background(chipColor),
+                .background(chipAccent),
             contentAlignment = Alignment.Center
         ) {
             IconButton(onClick = onCopy, modifier = Modifier.size(22.dp)) {

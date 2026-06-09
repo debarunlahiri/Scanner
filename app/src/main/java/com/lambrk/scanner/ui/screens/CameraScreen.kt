@@ -55,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -225,7 +226,7 @@ private fun ScanOverlay(
                     .height(2.dp)
                     .offset(y = offsetY.dp)
                     .padding(horizontal = 8.dp)
-                    .background(Color(0xFFFF8000))
+                    .background(MaterialTheme.colorScheme.secondary)
             )
         }
     }
@@ -334,10 +335,10 @@ private fun ScanOverlay(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedBorderColor = Color(0xFFFF8000),
+                            focusedBorderColor = MaterialTheme.colorScheme.secondary,
                             unfocusedBorderColor = Color.White.copy(alpha = 0.4f),
-                            cursorColor = Color(0xFFFF8000),
-                            focusedLabelColor = Color(0xFFFF8000),
+                            cursorColor = MaterialTheme.colorScheme.secondary,
+                            focusedLabelColor = MaterialTheme.colorScheme.secondary,
                             unfocusedLabelColor = Color.White.copy(alpha = 0.6f)
                         ),
                         shape = RoundedCornerShape(12.dp)
@@ -353,8 +354,8 @@ private fun ScanOverlay(
                         enabled = palletId.isNotBlank(),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFFF8000),
-                            contentColor = Color.White,
+                            containerColor = MaterialTheme.colorScheme.secondary,
+                            contentColor = MaterialTheme.colorScheme.onSecondary,
                             disabledContainerColor = Color.White.copy(alpha = 0.2f),
                             disabledContentColor = Color.White.copy(alpha = 0.4f)
                         ),
@@ -403,25 +404,41 @@ private fun PermissionDeniedContent(onRequest: () -> Unit) {
 
 // ─── Previews ────────────────────────────────────────────────────────────────────
 
-@ComposePreview(name = "Camera Screen – Light", showSystemUi = true)
+@ComposePreview(name = "Camera Screen - Light", showSystemUi = true, showBackground = true)
 @Composable
 private fun CameraScreenLightPreview() {
     ScannerTheme(darkTheme = false) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF1A1A1A))
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF1B2838),
+                            Color(0xFF2D3E50),
+                            Color(0xFF1A2535),
+                            Color(0xFF0D1B2A)
+                        )
+                    )
+                )
         ) {
+            // Warm room tint to simulate a lit indoor environment
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0x22C8A882))
+            )
+            var palletId by remember { mutableStateOf("") }
             ScanOverlay(
-                palletId = "",
-                onPalletIdChange = {},
+                palletId = palletId,
+                onPalletIdChange = { palletId = it },
                 onSubmit = {}
             )
         }
     }
 }
 
-@ComposePreview(name = "Camera Screen – Dark", showSystemUi = true,
+@ComposePreview(name = "Camera Screen - Dark", showSystemUi = true, showBackground = true,
     uiMode = Configuration.UI_MODE_NIGHT_YES or Configuration.UI_MODE_TYPE_NORMAL)
 @Composable
 private fun CameraScreenDarkPreview() {
@@ -429,10 +446,46 @@ private fun CameraScreenDarkPreview() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF0A0A0A))
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF050D15),
+                            Color(0xFF0A1622),
+                            Color(0xFF0D1B2A),
+                            Color(0xFF060E16)
+                        )
+                    )
+                )
+        ) {
+            var palletId by remember { mutableStateOf("") }
+            ScanOverlay(
+                palletId = palletId,
+                onPalletIdChange = { palletId = it },
+                onSubmit = {}
+            )
+        }
+    }
+}
+
+@ComposePreview(name = "Camera Screen - Input Filled", showSystemUi = true)
+@Composable
+private fun CameraScreenFilledPreview() {
+    ScannerTheme(darkTheme = false) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF1B2838),
+                            Color(0xFF2D3E50),
+                            Color(0xFF1A2535)
+                        )
+                    )
+                )
         ) {
             ScanOverlay(
-                palletId = "",
+                palletId = "BIN-20481",
                 onPalletIdChange = {},
                 onSubmit = {}
             )
