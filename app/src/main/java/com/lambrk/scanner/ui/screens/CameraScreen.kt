@@ -26,6 +26,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,9 +58,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -65,6 +70,9 @@ import androidx.navigation.NavController
 import com.lambrk.scanner.ui.components.ConfigureSystemBars
 import com.lambrk.scanner.ui.components.QrCodeAnalyzer
 import com.lambrk.scanner.ui.navigation.Screen
+import com.lambrk.scanner.ui.theme.ScannerTheme
+import android.content.res.Configuration
+import androidx.compose.ui.tooling.preview.Preview as ComposePreview
 import java.util.concurrent.Executors
 
 @Composable
@@ -227,7 +235,13 @@ private fun ScanOverlay(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 40.dp),
+                .padding(horizontal = 20.dp)
+                .padding(
+                    bottom = WindowInsets.navigationBars
+                        .asPaddingValues()
+                        .calculateBottomPadding() + 24.dp,
+                    top = 16.dp
+                ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Hint label
@@ -241,7 +255,46 @@ private fun ScanOverlay(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Divider with "or" helper text
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(1.dp)
+                        .background(Color.White.copy(alpha = 0.3f))
+                )
+                Text(
+                    text = "  OR  ",
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 1.sp
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(1.dp)
+                        .background(Color.White.copy(alpha = 0.3f))
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Bin ID helper text
+            Text(
+                text = "Cannot scan QR code? Enter Bin ID below",
+                color = Color.White.copy(alpha = 0.85f),
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Card input row
             Card(
@@ -344,6 +397,45 @@ private fun PermissionDeniedContent(onRequest: () -> Unit) {
         Spacer(modifier = Modifier.height(24.dp))
         Button(onClick = onRequest) {
             Text("Grant Permission")
+        }
+    }
+}
+
+// ─── Previews ────────────────────────────────────────────────────────────────────
+
+@ComposePreview(name = "Camera Screen – Light", showSystemUi = true)
+@Composable
+private fun CameraScreenLightPreview() {
+    ScannerTheme(darkTheme = false) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF1A1A1A))
+        ) {
+            ScanOverlay(
+                palletId = "",
+                onPalletIdChange = {},
+                onSubmit = {}
+            )
+        }
+    }
+}
+
+@ComposePreview(name = "Camera Screen – Dark", showSystemUi = true,
+    uiMode = Configuration.UI_MODE_NIGHT_YES or Configuration.UI_MODE_TYPE_NORMAL)
+@Composable
+private fun CameraScreenDarkPreview() {
+    ScannerTheme(darkTheme = true) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0A0A0A))
+        ) {
+            ScanOverlay(
+                palletId = "",
+                onPalletIdChange = {},
+                onSubmit = {}
+            )
         }
     }
 }

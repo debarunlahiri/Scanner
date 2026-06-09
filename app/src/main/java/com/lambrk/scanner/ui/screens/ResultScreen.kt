@@ -3,6 +3,7 @@ package com.lambrk.scanner.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -14,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +48,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -65,16 +68,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import androidx.navigation.compose.rememberNavController
 import com.lambrk.scanner.data.model.TableColumn
 import com.lambrk.scanner.data.model.TableData
 import com.lambrk.scanner.data.model.TableRow
 import com.lambrk.scanner.ui.components.ConfigureSystemBars
 import com.lambrk.scanner.ui.navigation.Screen
+import com.lambrk.scanner.ui.theme.ScannerTheme
 import com.lambrk.scanner.ui.viewmodel.ResultUiState
 import com.lambrk.scanner.ui.viewmodel.ResultViewModel
 import com.lambrk.scanner.utils.XlsxExporter
@@ -87,17 +93,55 @@ private val IDX_W: Dp     = 46.dp
 private val CHK_W: Dp     = 46.dp
 private val ACT_W: Dp     = 70.dp
 
-// ─── Colours ───────────────────────────────────────────────────────────────────
-private val ColHeaderBg   = Color(0xFF1A2744)
-private val ColHeaderTxt  = Color(0xFFE8F0FE)
-private val RowEven       = Color(0xFFF5F8FF)
-private val RowOdd        = Color(0xFFEBEFF9)
-private val RowSelected   = Color(0xFFD0E4FF)
-private val CellBorder    = Color(0xFFCDD5E0)
-private val PalletBlue    = Color(0xFF1565C0)
+// ─── Always-fixed colours ──────────────────────────────────────────────────────
 private val AccentOrange  = Color(0xFFFF8000)
-private val IndexGrey     = Color(0xFF78909C)
-private val SelectionBar  = Color(0xFF0D47A1)
+private val PalletBlue    = Color(0xFF1565C0)
+
+// ─── Theme-adaptive colours ────────────────────────────────────────────────────
+private data class TableColors(
+    val screenBg: Color,
+    val headerBg: Color,
+    val headerTxt: Color,
+    val rowEven: Color,
+    val rowOdd: Color,
+    val rowSelected: Color,
+    val cellBorder: Color,
+    val indexGrey: Color,
+    val selectionBarBg: Color,
+    val cellText: Color,
+    val checkUnchecked: Color
+)
+
+@Composable
+private fun tableColors(): TableColors {
+    val dark = isSystemInDarkTheme()
+    return if (dark) TableColors(
+        screenBg      = Color(0xFF0D1117),
+        headerBg      = Color(0xFF0D1B2A),
+        headerTxt     = Color(0xFFD0E4FF),
+        rowEven       = Color(0xFF1A2232),
+        rowOdd        = Color(0xFF151D2B),
+        rowSelected   = Color(0xFF0D3460),
+        cellBorder    = Color(0xFF2A3A50),
+        indexGrey     = Color(0xFF546E7A),
+        selectionBarBg= Color(0xFF0A2744),
+        cellText      = Color(0xFFCDD8E8),
+        checkUnchecked= Color(0xFF455A64)
+    ) else TableColors(
+        screenBg      = Color(0xFFEDF1FB),
+        headerBg      = Color(0xFF1A2744),
+        headerTxt     = Color(0xFFE8F0FE),
+        rowEven       = Color(0xFFF5F8FF),
+        rowOdd        = Color(0xFFEBEFF9),
+        rowSelected   = Color(0xFFD0E4FF),
+        cellBorder    = Color(0xFFCDD5E0),
+        indexGrey     = Color(0xFF78909C),
+        selectionBarBg= Color(0xFF0D47A1),
+        cellText      = Color(0xFF1A1A2E),
+        checkUnchecked= Color(0xFFB0BEC5)
+    )
+}
+
 
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
@@ -153,7 +197,7 @@ fun ResultScreen(navController: NavController, qrData: String) {
                 )
             )
         },
-        containerColor = Color(0xFFEDF1FB)
+        containerColor = tableColors().screenBg
     ) { padding ->
         Box(
             modifier = Modifier
@@ -207,8 +251,10 @@ private fun ErrorContent(message: String, onRetry: () -> Unit) {
 private fun TableContent(state: ResultUiState.Success, context: Context) {
     var rawScale by remember { mutableFloatStateOf(1f) }
     val scale by animateFloatAsState(rawScale.coerceIn(0.4f, 3f), label = "scale")
+    val tc = tableColors()
 
-    // Multi-select state: set of selected pallet IDs
+    // Multi-select state
+    var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
     val allIds = state.tableData.rows.map { it.palletId }
     val allSelected = selectedIds.size == allIds.size && allIds.isNotEmpty()
@@ -218,23 +264,46 @@ private fun TableContent(state: ResultUiState.Success, context: Context) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(ColHeaderBg)
+                .background(tc.headerBg)
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
                 text = "📦  ${state.tableData.rows.size} rows  •  ${state.tableData.columns.size} columns",
-                color = ColHeaderTxt,
+                color = tc.headerTxt,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 13.sp
             )
-            Text("Pinch to zoom", color = ColHeaderTxt.copy(alpha = 0.55f), fontSize = 11.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Pinch to zoom", color = tc.headerTxt.copy(alpha = 0.45f), fontSize = 11.sp)
+                Spacer(Modifier.width(12.dp))
+                // Select / Done toggle
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (selectionMode) AccentOrange else Color.White.copy(alpha = 0.15f)
+                        )
+                        .clickable {
+                            selectionMode = !selectionMode
+                            if (!selectionMode) selectedIds = emptySet()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                ) {
+                    Text(
+                        text = if (selectionMode) "Done" else "Select",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
+            }
         }
 
-        // ── Selection action bar (visible when ≥1 row selected) ─────────────
+        // ── Selection action bar (visible when selectionMode + ≥1 selected) ─
         AnimatedVisibility(
-            visible = selectedIds.isNotEmpty(),
+            visible = selectionMode && selectedIds.isNotEmpty(),
             enter = expandVertically(),
             exit = shrinkVertically()
         ) {
@@ -242,6 +311,7 @@ private fun TableContent(state: ResultUiState.Success, context: Context) {
                 selectedCount = selectedIds.size,
                 totalCount = allIds.size,
                 allSelected = allSelected,
+                selectionBarBg = tc.selectionBarBg,
                 onSelectAll = {
                     selectedIds = if (allSelected) emptySet() else allIds.toSet()
                 },
@@ -266,8 +336,10 @@ private fun TableContent(state: ResultUiState.Success, context: Context) {
             Box(modifier = Modifier.scale(scale)) {
                 TableGrid(
                     tableData = state.tableData,
+                    selectionMode = selectionMode,
                     selectedIds = selectedIds,
                     allSelected = allSelected,
+                    tc = tc,
                     onToggleSelectAll = {
                         selectedIds = if (allSelected) emptySet() else allIds.toSet()
                     },
@@ -293,6 +365,7 @@ private fun SelectionBar(
     selectedCount: Int,
     totalCount: Int,
     allSelected: Boolean,
+    selectionBarBg: Color,
     onSelectAll: () -> Unit,
     onCopySelected: () -> Unit,
     onClearSelection: () -> Unit
@@ -300,7 +373,7 @@ private fun SelectionBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(SelectionBar)
+            .background(selectionBarBg)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -385,8 +458,10 @@ private fun SelectionBar(
 @Composable
 private fun TableGrid(
     tableData: TableData,
+    selectionMode: Boolean,
     selectedIds: Set<String>,
     allSelected: Boolean,
+    tc: TableColors,
     onToggleSelectAll: () -> Unit,
     onToggleRow: (String) -> Unit,
     onCopyRow: (String) -> Unit,
@@ -399,16 +474,15 @@ private fun TableGrid(
         Row(
             modifier = Modifier
                 .horizontalScroll(hScroll)
-                .background(ColHeaderBg)
+                .background(tc.headerBg)
         ) {
-            // Select-all checkbox header
-            CheckboxHeaderCell(allSelected = allSelected, onToggle = onToggleSelectAll)
-            // Row index header
-            HeaderCell(text = "#", width = IDX_W)
-            // Column headers
-            tableData.columns.forEach { col -> HeaderCell(text = col.header, width = CELL_W) }
-            // Action header
-            HeaderCell(text = "Copy ID", width = ACT_W)
+            // Select-all checkbox header — only when in selection mode
+            if (selectionMode) {
+                CheckboxHeaderCell(allSelected = allSelected, tc = tc, onToggle = onToggleSelectAll)
+            }
+            HeaderCell(text = "#", width = IDX_W, tc = tc)
+            tableData.columns.forEach { col -> HeaderCell(text = col.header, width = CELL_W, tc = tc) }
+            HeaderCell(text = "Copy ID", width = ACT_W, tc = tc)
         }
 
         // ── Data rows ──
@@ -419,7 +493,9 @@ private fun TableGrid(
                     row = row,
                     columns = tableData.columns,
                     isEven = idx % 2 == 0,
+                    selectionMode = selectionMode,
                     isSelected = selectedIds.contains(row.palletId),
+                    tc = tc,
                     hScroll = hScroll,
                     onToggleSelect = { onToggleRow(row.palletId) },
                     onCopyRow = onCopyRow,
@@ -433,36 +509,36 @@ private fun TableGrid(
 // ─── Header cells ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun CheckboxHeaderCell(allSelected: Boolean, onToggle: () -> Unit) {
+private fun CheckboxHeaderCell(allSelected: Boolean, tc: TableColors, onToggle: () -> Unit) {
     Box(
         modifier = Modifier
             .width(CHK_W)
             .height(HDR_H)
-            .border(0.5.dp, ColHeaderTxt.copy(alpha = 0.2f))
+            .border(0.5.dp, tc.headerTxt.copy(alpha = 0.2f))
             .clickable { onToggle() },
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = if (allSelected) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
             contentDescription = "Select All",
-            tint = if (allSelected) AccentOrange else ColHeaderTxt.copy(alpha = 0.7f),
+            tint = if (allSelected) AccentOrange else tc.headerTxt.copy(alpha = 0.7f),
             modifier = Modifier.size(22.dp)
         )
     }
 }
 
 @Composable
-private fun HeaderCell(text: String, width: Dp) {
+private fun HeaderCell(text: String, width: Dp, tc: TableColors) {
     Box(
         modifier = Modifier
             .width(width)
             .height(HDR_H)
-            .border(0.5.dp, ColHeaderTxt.copy(alpha = 0.2f)),
+            .border(0.5.dp, tc.headerTxt.copy(alpha = 0.2f)),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = text,
-            color = ColHeaderTxt,
+            color = tc.headerTxt,
             fontWeight = FontWeight.Bold,
             fontSize = 12.sp,
             maxLines = 2,
@@ -481,16 +557,18 @@ private fun DataRow(
     row: TableRow,
     columns: List<TableColumn>,
     isEven: Boolean,
+    selectionMode: Boolean,
     isSelected: Boolean,
+    tc: TableColors,
     hScroll: ScrollState,
     onToggleSelect: () -> Unit,
     onCopyRow: (String) -> Unit,
     onCopyCell: (String) -> Unit
 ) {
     val bg = when {
-        isSelected -> RowSelected
-        isEven     -> RowEven
-        else       -> RowOdd
+        isSelected -> tc.rowSelected
+        isEven     -> tc.rowEven
+        else       -> tc.rowOdd
     }
 
     Row(
@@ -499,21 +577,23 @@ private fun DataRow(
             .background(bg),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // ── Checkbox cell ──
-        Box(
-            modifier = Modifier
-                .width(CHK_W)
-                .height(CELL_H)
-                .border(0.5.dp, CellBorder)
-                .clickable { onToggleSelect() },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = if (isSelected) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
-                contentDescription = "Select row",
-                tint = if (isSelected) PalletBlue else Color(0xFFB0BEC5),
-                modifier = Modifier.size(22.dp)
-            )
+        // ── Checkbox cell — only when selectionMode is active ──
+        if (selectionMode) {
+            Box(
+                modifier = Modifier
+                    .width(CHK_W)
+                    .height(CELL_H)
+                    .border(0.5.dp, tc.cellBorder)
+                    .clickable { onToggleSelect() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isSelected) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
+                    contentDescription = "Select row",
+                    tint = if (isSelected) PalletBlue else tc.checkUnchecked,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
 
         // ── Row index ──
@@ -521,13 +601,13 @@ private fun DataRow(
             modifier = Modifier
                 .width(IDX_W)
                 .height(CELL_H)
-                .border(0.5.dp, CellBorder),
+                .border(0.5.dp, tc.cellBorder),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "$index",
                 fontSize = 11.sp,
-                color = IndexGrey,
+                color = tc.indexGrey,
                 fontWeight = FontWeight.Medium
             )
         }
@@ -539,7 +619,7 @@ private fun DataRow(
                 modifier = Modifier
                     .width(CELL_W)
                     .height(CELL_H)
-                    .border(0.5.dp, CellBorder),
+                    .border(0.5.dp, tc.cellBorder),
                 contentAlignment = Alignment.CenterStart
             ) {
                 if (col.key == "palletId") {
@@ -552,7 +632,7 @@ private fun DataRow(
                     Text(
                         text = value,
                         fontSize = 12.sp,
-                        color = Color(0xFF1A1A2E),
+                        color = tc.cellText,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -566,7 +646,7 @@ private fun DataRow(
             modifier = Modifier
                 .width(ACT_W)
                 .height(CELL_H)
-                .border(0.5.dp, CellBorder),
+                .border(0.5.dp, tc.cellBorder),
             contentAlignment = Alignment.Center
         ) {
             IconButton(
@@ -627,11 +707,109 @@ private fun PalletChip(palletId: String, isSelected: Boolean, onCopy: () -> Unit
     }
 }
 
-// ─── Clipboard ─────────────────────────────────────────────────────────────────
+// ─── Clipboard ───────────────────────────────────────────────────────────────────
 
 private fun copyText(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     cm.setPrimaryClip(ClipData.newPlainText("Pallet", text))
     val display = if (text.length > 60) text.take(60) + "…" else text
     Toast.makeText(context, "Copied: $display", Toast.LENGTH_SHORT).show()
+}
+
+// ─── Previews ───────────────────────────────────────────────────────────────────
+
+@Preview(name = "Result Screen – Light", showSystemUi = true)
+@Composable
+private fun ResultScreenLightPreview() {
+    ScannerTheme(darkTheme = false) {
+        Surface {
+            // Show the table directly with mock data (no ViewModel needed in preview)
+            val mockPost = com.lambrk.scanner.data.model.Post(
+                userId = 1, id = 1,
+                title = "Sample Title",
+                body = "Sample body text"
+            )
+            val mockTable = TableData.fromQrCode("PREVIEW_QR", mockPost)
+            val tc = tableColors()
+            var selectionMode by remember { mutableStateOf(false) }
+            var selectedIds by remember { mutableStateOf(setOf<String>()) }
+            val allIds = mockTable.rows.map { it.palletId }
+            val allSelected = selectedIds.size == allIds.size && allIds.isNotEmpty()
+            Column(Modifier.fillMaxSize().background(tc.screenBg)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(tc.headerBg)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("📦  ${mockTable.rows.size} rows  •  ${mockTable.columns.size} columns",
+                        color = tc.headerTxt, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text("Pinch to zoom", color = tc.headerTxt.copy(alpha = 0.45f), fontSize = 11.sp)
+                }
+                TableGrid(
+                    tableData = mockTable,
+                    selectionMode = selectionMode,
+                    selectedIds = selectedIds,
+                    allSelected = allSelected,
+                    tc = tc,
+                    onToggleSelectAll = {
+                        selectedIds = if (allSelected) emptySet() else allIds.toSet()
+                    },
+                    onToggleRow = { id ->
+                        selectedIds = if (selectedIds.contains(id)) selectedIds - id else selectedIds + id
+                    },
+                    onCopyRow = {},
+                    onCopyCell = {}
+                )
+            }
+        }
+    }
+}
+
+@Preview(name = "Result Screen – Dark", showSystemUi = true,
+    uiMode = Configuration.UI_MODE_NIGHT_YES or Configuration.UI_MODE_TYPE_NORMAL)
+@Composable
+private fun ResultScreenDarkPreview() {
+    ScannerTheme(darkTheme = true) {
+        Surface {
+            val mockPost = com.lambrk.scanner.data.model.Post(
+                userId = 1, id = 1,
+                title = "Sample Title",
+                body = "Sample body text"
+            )
+            val mockTable = TableData.fromQrCode("PREVIEW_QR", mockPost)
+            val tc = tableColors()
+            var selectionMode by remember { mutableStateOf(false) }
+            var selectedIds by remember { mutableStateOf(setOf<String>()) }
+            val allIds = mockTable.rows.map { it.palletId }
+            val allSelected = selectedIds.size == allIds.size && allIds.isNotEmpty()
+            Column(Modifier.fillMaxSize().background(tc.screenBg)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(tc.headerBg)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("📦  ${mockTable.rows.size} rows  •  ${mockTable.columns.size} columns",
+                        color = tc.headerTxt, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text("Pinch to zoom", color = tc.headerTxt.copy(alpha = 0.45f), fontSize = 11.sp)
+                }
+                TableGrid(
+                    tableData = mockTable,
+                    selectionMode = selectionMode,
+                    selectedIds = selectedIds,
+                    allSelected = allSelected,
+                    tc = tc,
+                    onToggleSelectAll = {
+                        selectedIds = if (allSelected) emptySet() else allIds.toSet()
+                    },
+                    onToggleRow = { id ->
+                        selectedIds = if (selectedIds.contains(id)) selectedIds - id else selectedIds + id
+                    },
+                    onCopyRow = {},
+                    onCopyCell = {}
+                )
+            }
+        }
+    }
 }
