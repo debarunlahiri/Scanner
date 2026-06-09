@@ -141,36 +141,48 @@ object XlsxExporter {
         zip.closeEntry()
     }
 
+    private val HEADERS = listOf(
+        "Pallet ID"   to { r: com.lambrk.scanner.data.model.TableRow -> r.palletId },
+        "SKU"         to { r: com.lambrk.scanner.data.model.TableRow -> r.sku },
+        "Description" to { r: com.lambrk.scanner.data.model.TableRow -> r.description },
+        "Qty"         to { r: com.lambrk.scanner.data.model.TableRow -> r.qty },
+        "Weight (kg)" to { r: com.lambrk.scanner.data.model.TableRow -> r.weight },
+        "Location"    to { r: com.lambrk.scanner.data.model.TableRow -> r.location },
+        "Status"      to { r: com.lambrk.scanner.data.model.TableRow -> r.status },
+        "Scan Time"   to { r: com.lambrk.scanner.data.model.TableRow -> r.scanTime },
+        "User ID"     to { r: com.lambrk.scanner.data.model.TableRow -> r.userId }
+    )
+
     private fun writeSheet(zip: ZipOutputStream, tableData: TableData) {
         zip.putNextEntry(ZipEntry("xl/worksheets/sheet1.xml"))
         val sb = StringBuilder()
         sb.append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
         sb.append("""<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">""")
 
-        // Column widths — set generous width for all columns
+        // Column widths
         sb.append("<cols>")
-        tableData.columns.forEachIndexed { idx, _ ->
+        HEADERS.forEachIndexed { idx, _ ->
             sb.append("""<col min="${idx + 1}" max="${idx + 1}" width="22" customWidth="1"/>""")
         }
         sb.append("</cols>")
 
         sb.append("<sheetData>")
 
-        // Header row (row 1, bold style index = 1)
+        // Header row (bold style = 1)
         sb.append("""<row r="1">""")
-        tableData.columns.forEachIndexed { colIdx, col ->
+        HEADERS.forEachIndexed { colIdx, (header, _) ->
             val cellRef = cellAddress(0, colIdx)
-            sb.append("""<c r="$cellRef" t="inlineStr" s="1"><is><t>${col.header.xmlEscape()}</t></is></c>""")
+            sb.append("""<c r="$cellRef" t="inlineStr" s="1"><is><t>${header.xmlEscape()}</t></is></c>""")
         }
         sb.append("</row>")
 
         // Data rows
         tableData.rows.forEachIndexed { rowIdx, row ->
-            val excelRow = rowIdx + 2 // 1-indexed, row 1 is header
+            val excelRow = rowIdx + 2
             sb.append("""<row r="$excelRow">""")
-            tableData.columns.forEachIndexed { colIdx, col ->
+            HEADERS.forEachIndexed { colIdx, (_, accessor) ->
                 val cellRef = cellAddress(rowIdx + 1, colIdx)
-                val value = (row.cells[col.key] ?: "").xmlEscape()
+                val value = accessor(row).xmlEscape()
                 sb.append("""<c r="$cellRef" t="inlineStr"><is><t>$value</t></is></c>""")
             }
             sb.append("</row>")

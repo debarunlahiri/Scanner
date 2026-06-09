@@ -75,7 +75,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
-import com.lambrk.scanner.data.model.TableColumn
 import com.lambrk.scanner.data.model.TableData
 import com.lambrk.scanner.data.model.TableRow
 import com.lambrk.scanner.ui.components.ConfigureSystemBars
@@ -84,6 +83,29 @@ import com.lambrk.scanner.ui.theme.ScannerTheme
 import com.lambrk.scanner.ui.viewmodel.ResultUiState
 import com.lambrk.scanner.ui.viewmodel.ResultViewModel
 import com.lambrk.scanner.utils.XlsxExporter
+
+// ─── Column definitions ────────────────────────────────────────────────────────────
+// Each entry is a column header paired with a lambda that reads the field from TableRow
+private val TABLE_COLUMNS: List<Pair<String, (TableRow) -> String>> = listOf(
+    "Pallet ID"   to { r -> r.palletId },
+    "SKU"         to { r -> r.sku },
+    "Description" to { r -> r.description },
+    "Qty"         to { r -> r.qty },
+    "Weight (kg)" to { r -> r.weight },
+    "Location"    to { r -> r.location },
+    "Status"      to { r -> r.status },
+    "Scan Time"   to { r -> r.scanTime },
+    "User ID"     to { r -> r.userId }
+)
+
+// ─── Preview helpers ────────────────────────────────────────────────────────────
+private fun buildPreviewTableData() = TableData(
+    rows = listOf(
+        TableRow("PLT-0001", "SKU-101", "Widget A",   "12",  "1.50", "A-01-01", "Received",   "2025-06-01 09:00", "U-1"),
+        TableRow("PLT-0002", "SKU-102", "Widget B",    "5",  "3.20", "B-02-03", "In Transit", "2025-06-02 10:15", "U-2"),
+        TableRow("PLT-0003", "SKU-103", "Gadget Pro", "30",  "0.80", "C-03-02", "Stored",     "2025-06-03 11:30", "U-1")
+    )
+)
 
 // ─── Dimensions ────────────────────────────────────────────────────────────────
 private val CELL_W: Dp    = 160.dp
@@ -281,7 +303,7 @@ private fun TableContent(state: ResultUiState.Success, context: Context) {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = "📦  ${state.tableData.rows.size} rows  •  ${state.tableData.columns.size} columns",
+                text = "📦  ${state.tableData.rows.size} rows  •  ${TABLE_COLUMNS.size} columns",
                 color = tc.headerTxt,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 13.sp
@@ -487,12 +509,11 @@ private fun TableGrid(
                 .horizontalScroll(hScroll)
                 .background(tc.headerBg)
         ) {
-            // Select-all checkbox header — only when in selection mode
             if (selectionMode) {
                 CheckboxHeaderCell(allSelected = allSelected, tc = tc, onToggle = onToggleSelectAll)
             }
             HeaderCell(text = "#", width = IDX_W, tc = tc)
-            tableData.columns.forEach { col -> HeaderCell(text = col.header, width = CELL_W, tc = tc) }
+            TABLE_COLUMNS.forEach { (header, _) -> HeaderCell(text = header, width = CELL_W, tc = tc) }
             HeaderCell(text = "Copy ID", width = ACT_W, tc = tc)
         }
 
@@ -502,7 +523,6 @@ private fun TableGrid(
                 DataRow(
                     index = idx + 1,
                     row = row,
-                    columns = tableData.columns,
                     isEven = idx % 2 == 0,
                     selectionMode = selectionMode,
                     isSelected = selectedIds.contains(row.palletId),
@@ -566,7 +586,6 @@ private fun HeaderCell(text: String, width: Dp, tc: TableColors) {
 private fun DataRow(
     index: Int,
     row: TableRow,
-    columns: List<TableColumn>,
     isEven: Boolean,
     selectionMode: Boolean,
     isSelected: Boolean,
@@ -588,7 +607,7 @@ private fun DataRow(
             .background(bg),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // ── Checkbox cell — only when selectionMode is active ──
+        // ── Checkbox cell ──
         if (selectionMode) {
             Box(
                 modifier = Modifier
@@ -615,17 +634,12 @@ private fun DataRow(
                 .border(0.5.dp, tc.cellBorder),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = "$index",
-                fontSize = 11.sp,
-                color = tc.indexGrey,
-                fontWeight = FontWeight.Medium
-            )
+            Text(text = "$index", fontSize = 11.sp, color = tc.indexGrey, fontWeight = FontWeight.Medium)
         }
 
         // ── Data cells ──
-        columns.forEach { col ->
-            val value = row.cells[col.key] ?: ""
+        TABLE_COLUMNS.forEachIndexed { colIdx, (_, accessor) ->
+            val value = accessor(row)
             Box(
                 modifier = Modifier
                     .width(CELL_W)
@@ -633,7 +647,7 @@ private fun DataRow(
                     .border(0.5.dp, tc.cellBorder),
                 contentAlignment = Alignment.CenterStart
             ) {
-                if (col.key == "palletId") {
+                if (colIdx == 0) { // palletId is the first column
                     PalletChip(
                         palletId = value,
                         isSelected = isSelected,
@@ -660,10 +674,7 @@ private fun DataRow(
                 .border(0.5.dp, tc.cellBorder),
             contentAlignment = Alignment.Center
         ) {
-            IconButton(
-                onClick = { onCopyRow(row.palletId) },
-                modifier = Modifier.size(34.dp)
-            ) {
+            IconButton(onClick = { onCopyRow(row.palletId) }, modifier = Modifier.size(34.dp)) {
                 Icon(
                     imageVector = Icons.Filled.ContentCopy,
                     contentDescription = "Copy Pallet ID",
@@ -738,13 +749,7 @@ private fun copyText(context: Context, text: String) {
 private fun ResultScreenLightPreview() {
     ScannerTheme(darkTheme = false) {
         Surface {
-            // Show the table directly with mock data (no ViewModel needed in preview)
-            val mockPost = com.lambrk.scanner.data.model.Post(
-                userId = 1, id = 1,
-                title = "Sample Title",
-                body = "Sample body text"
-            )
-            val mockTable = TableData.fromQrCode("PREVIEW_QR", mockPost)
+            val mockTable = buildPreviewTableData()
             val tc = tableColors()
             var selectionMode by remember { mutableStateOf(false) }
             var selectedIds by remember { mutableStateOf(setOf<String>()) }
@@ -757,7 +762,7 @@ private fun ResultScreenLightPreview() {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("📦  ${mockTable.rows.size} rows  •  ${mockTable.columns.size} columns",
+                    Text("📦  ${mockTable.rows.size} rows  •  ${TABLE_COLUMNS.size} columns",
                         color = tc.headerTxt, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     Text("Pinch to zoom", color = tc.headerTxt.copy(alpha = 0.45f), fontSize = 11.sp)
                 }
@@ -787,12 +792,7 @@ private fun ResultScreenLightPreview() {
 private fun ResultScreenDarkPreview() {
     ScannerTheme(darkTheme = true) {
         Surface {
-            val mockPost = com.lambrk.scanner.data.model.Post(
-                userId = 1, id = 1,
-                title = "Sample Title",
-                body = "Sample body text"
-            )
-            val mockTable = TableData.fromQrCode("PREVIEW_QR", mockPost)
+            val mockTable = buildPreviewTableData()
             val tc = tableColors()
             var selectionMode by remember { mutableStateOf(false) }
             var selectedIds by remember { mutableStateOf(setOf<String>()) }
@@ -805,7 +805,7 @@ private fun ResultScreenDarkPreview() {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("📦  ${mockTable.rows.size} rows  •  ${mockTable.columns.size} columns",
+                    Text("📦  ${mockTable.rows.size} rows  •  ${TABLE_COLUMNS.size} columns",
                         color = tc.headerTxt, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     Text("Pinch to zoom", color = tc.headerTxt.copy(alpha = 0.45f), fontSize = 11.sp)
                 }
