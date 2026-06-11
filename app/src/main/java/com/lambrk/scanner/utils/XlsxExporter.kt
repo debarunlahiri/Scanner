@@ -1,13 +1,20 @@
 package com.lambrk.scanner.utils
 
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import com.lambrk.scanner.data.model.TableData
+import com.lambrk.scanner.data.model.TableRow
 import java.io.File
 import java.io.FileOutputStream
+import java.io.OutputStream
 import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 /**
@@ -23,21 +30,97 @@ object XlsxExporter {
      */
     fun export(context: Context, tableData: TableData, fileName: String = "export.xlsx"): Uri {
         val file = File(context.cacheDir, fileName)
-        FileOutputStream(file).use { fos ->
-            ZipOutputStream(fos).use { zip ->
-                writeContentTypes(zip)
-                writeRels(zip)
-                writeWorkbook(zip)
-                writeWorkbookRels(zip)
-                writeStyles(zip)
-                writeSheet(zip, tableData)
-            }
-        }
+        FileOutputStream(file).use { output -> writeWorkbookFile(output, tableData) }
         return FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
             file
         )
+    }
+
+    /**
+     * Saves the XLSX locally without requiring internet, Play services, or another app.
+     */
+    fun saveToDownloads(context: Context, tableData: TableData, fileName: String = "export.xlsx"): Uri {
+        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            saveToPublicDownloads(context, tableData, fileName)
+        } else {
+            saveToAppDownloads(context, tableData, fileName)
+        }
+        GeneratedExcelRegistry.add(context, fileName, uri)
+        return uri
+    }
+
+    fun read(context: Context, uri: Uri): TableData {
+        val entries = mutableMapOf<String, String>()
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            ZipInputStream(input).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    if (entry.name == "xl/worksheets/sheet1.xml" || entry.name == "xl/sharedStrings.xml") {
+                        entries[entry.name] = zip.readBytes().toString(Charsets.UTF_8)
+                    }
+                    entry = zip.nextEntry
+                }
+            }
+        }
+
+        val sheetXml = entries["xl/worksheets/sheet1.xml"] ?: return TableData(emptyList())
+        val sharedStrings = entries["xl/sharedStrings.xml"]?.let(::parseSharedStrings).orEmpty()
+
+        val rows = Regex("<row[^>]*>(.*?)</row>", RegexOption.DOT_MATCHES_ALL)
+            .findAll(sheetXml)
+            .drop(1)
+            .map { rowMatch ->
+                Regex("<c([^>]*)>(.*?)</c>", RegexOption.DOT_MATCHES_ALL)
+                    .findAll(rowMatch.groupValues[1])
+                    .map { cellMatch ->
+                        val attributes = cellMatch.groupValues[1]
+                        val content = cellMatch.groupValues[2]
+                        val inlineValue = Regex("<t>(.*?)</t>", RegexOption.DOT_MATCHES_ALL)
+                            .find(content)
+                            ?.groupValues
+                            ?.get(1)
+                            ?.xmlUnescape()
+                        val rawValue = Regex("<v>(.*?)</v>", RegexOption.DOT_MATCHES_ALL)
+                            .find(content)
+                            ?.groupValues
+                            ?.get(1)
+                            ?.xmlUnescape()
+
+                        if (attributes.contains("""t="s"""")) {
+                            sharedStrings.getOrElse(rawValue?.toIntOrNull() ?: -1) { "" }
+                        } else {
+                            inlineValue ?: rawValue.orEmpty()
+                        }
+                    }
+                    .toList()
+            }
+            .map { cells ->
+                TableRow(
+                    palletNo = cells.getOrElse(0) { "" },
+                    binId = cells.getOrElse(1) { "" },
+                    productCode = cells.getOrElse(2) { "" },
+                    qty = cells.getOrElse(3) { "" },
+                    date = cells.getOrElse(4) { "" },
+                    hReason = cells.getOrElse(5) { "" },
+                    grade = cells.getOrElse(6) { "" }
+                )
+            }
+            .toList()
+
+        return TableData(rows)
+    }
+
+    private fun parseSharedStrings(xml: String): List<String> {
+        return Regex("<si[^>]*>(.*?)</si>", RegexOption.DOT_MATCHES_ALL)
+            .findAll(xml)
+            .map { siMatch ->
+                Regex("<t[^>]*>(.*?)</t>", RegexOption.DOT_MATCHES_ALL)
+                    .findAll(siMatch.groupValues[1])
+                    .joinToString("") { it.groupValues[1].xmlUnescape() }
+            }
+            .toList()
     }
 
     /**
@@ -53,7 +136,61 @@ object XlsxExporter {
         context.startActivity(Intent.createChooser(intent, "Download / Share Excel"))
     }
 
+    private fun saveToPublicDownloads(context: Context, tableData: TableData, fileName: String): Uri {
+        val resolver = context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+            put(MediaStore.Downloads.MIME_TYPE, XLSX_MIME_TYPE)
+            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: error("Could not create Downloads file")
+
+        try {
+            resolver.openOutputStream(uri)?.use { output ->
+                writeWorkbookFile(output, tableData)
+            } ?: error("Could not open Downloads file")
+
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            return uri
+        } catch (e: Exception) {
+            resolver.delete(uri, null, null)
+            throw e
+        }
+    }
+
+    private fun saveToAppDownloads(context: Context, tableData: TableData, fileName: String): Uri {
+        val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+        if (!dir.exists()) dir.mkdirs()
+
+        val file = File(dir, fileName)
+        FileOutputStream(file).use { output -> writeWorkbookFile(output, tableData) }
+
+        return FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+    }
+
+    private fun writeWorkbookFile(output: OutputStream, tableData: TableData) {
+        ZipOutputStream(output).use { zip ->
+            writeContentTypes(zip)
+            writeRels(zip)
+            writeWorkbook(zip)
+            writeWorkbookRels(zip)
+            writeStyles(zip)
+            writeSheet(zip, tableData)
+        }
+    }
+
     // ── ZIP entries ────────────────────────────────────────────────────────────
+
+    private const val XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     private fun writeContentTypes(zip: ZipOutputStream) {
         zip.putNextEntry(ZipEntry("[Content_Types].xml"))
@@ -142,15 +279,13 @@ object XlsxExporter {
     }
 
     private val HEADERS = listOf(
-        "Pallet ID"   to { r: com.lambrk.scanner.data.model.TableRow -> r.palletId },
-        "SKU"         to { r: com.lambrk.scanner.data.model.TableRow -> r.sku },
-        "Description" to { r: com.lambrk.scanner.data.model.TableRow -> r.description },
-        "Qty"         to { r: com.lambrk.scanner.data.model.TableRow -> r.qty },
-        "Weight (kg)" to { r: com.lambrk.scanner.data.model.TableRow -> r.weight },
-        "Location"    to { r: com.lambrk.scanner.data.model.TableRow -> r.location },
-        "Status"      to { r: com.lambrk.scanner.data.model.TableRow -> r.status },
-        "Scan Time"   to { r: com.lambrk.scanner.data.model.TableRow -> r.scanTime },
-        "User ID"     to { r: com.lambrk.scanner.data.model.TableRow -> r.userId }
+        "Pallet No"    to { r: com.lambrk.scanner.data.model.TableRow -> r.palletNo },
+        "Bin ID"       to { r: com.lambrk.scanner.data.model.TableRow -> r.binId },
+        "Product Code" to { r: com.lambrk.scanner.data.model.TableRow -> r.productCode },
+        "Qty"          to { r: com.lambrk.scanner.data.model.TableRow -> r.qty },
+        "Date"         to { r: com.lambrk.scanner.data.model.TableRow -> r.date },
+        "H Reason"     to { r: com.lambrk.scanner.data.model.TableRow -> r.hReason },
+        "Grade"        to { r: com.lambrk.scanner.data.model.TableRow -> r.grade }
     )
 
     private fun writeSheet(zip: ZipOutputStream, tableData: TableData) {
@@ -212,4 +347,11 @@ object XlsxExporter {
         .replace(">", "&gt;")
         .replace("\"", "&quot;")
         .replace("'", "&apos;")
+
+    private fun String.xmlUnescape(): String = this
+        .replace("&apos;", "'")
+        .replace("&quot;", "\"")
+        .replace("&gt;", ">")
+        .replace("&lt;", "<")
+        .replace("&amp;", "&")
 }

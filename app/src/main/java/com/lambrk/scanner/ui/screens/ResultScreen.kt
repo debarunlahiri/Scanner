@@ -5,10 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.res.Configuration
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,21 +24,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -60,9 +55,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -75,6 +70,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.lambrk.scanner.data.model.TableData
 import com.lambrk.scanner.data.model.TableRow
 import com.lambrk.scanner.ui.components.ConfigureSystemBars
@@ -87,25 +84,37 @@ import com.lambrk.scanner.utils.XlsxExporter
 // ─── Column definitions ────────────────────────────────────────────────────────────
 // Each entry is a column header paired with a lambda that reads the field from TableRow
 private val TABLE_COLUMNS: List<Pair<String, (TableRow) -> String>> = listOf(
-    "Pallet ID"   to { r -> r.palletId },
-    "SKU"         to { r -> r.sku },
-    "Description" to { r -> r.description },
-    "Qty"         to { r -> r.qty },
-    "Weight (kg)" to { r -> r.weight },
-    "Location"    to { r -> r.location },
-    "Status"      to { r -> r.status },
-    "Scan Time"   to { r -> r.scanTime },
-    "User ID"     to { r -> r.userId }
+    "Pallet No"    to { r -> r.palletNo },
+    "Bin ID"       to { r -> r.binId },
+    "Product Code" to { r -> r.productCode },
+    "Qty"          to { r -> r.qty },
+    "Date"         to { r -> r.date },
+    "H Reason"     to { r -> r.hReason },
+    "Grade"        to { r -> r.grade }
 )
 
 // ─── Preview helpers ────────────────────────────────────────────────────────────
 private fun buildPreviewTableData() = TableData(
     rows = listOf(
-        TableRow("PLT-0001", "SKU-101", "Widget A",   "12",  "1.50", "A-01-01", "Received",   "2025-06-01 09:00", "U-1"),
-        TableRow("PLT-0002", "SKU-102", "Widget B",    "5",  "3.20", "B-02-03", "In Transit", "2025-06-02 10:15", "U-2"),
-        TableRow("PLT-0003", "SKU-103", "Gadget Pro", "30",  "0.80", "C-03-02", "Stored",     "2025-06-03 11:30", "U-1")
+        TableRow("Z001A2B3C", "G06B-03", "PC-101", "12", "2026-06-11", "Hold", "A1"),
+        TableRow("M00AF12C3", "G06B-03", "PC-102", "5", "2026-06-11", "", "S1"),
+        TableRow("Z00BC34D5", "G06B-03", "PC-103", "30", "2026-06-11", "Damage", "A1")
     )
 )
+
+private fun TableData.availableRowCount() = rows.count { it.hasApiData() }
+
+private fun TableRow.hasApiData(): Boolean {
+    return productCode.isNotBlank() ||
+        qty.isNotBlank() ||
+        date.isNotBlank() ||
+        hReason.isNotBlank() ||
+        grade.isNotBlank()
+}
+
+private fun TableRow.copyValue(): String {
+    return listOf(palletNo, binId, productCode, qty, date, hReason, grade).joinToString("\t")
+}
 
 // ─── Dimensions ────────────────────────────────────────────────────────────────
 private val CELL_W: Dp    = 160.dp
@@ -115,9 +124,6 @@ private val IDX_W: Dp     = 46.dp
 private val CHK_W: Dp     = 46.dp
 private val ACT_W: Dp     = 70.dp
 
-// AccentOrange removed — accent is now MaterialTheme.colorScheme.secondary (blue)
-private val PalletBlue = Color(0xFF1565C0)  // used for pallet chip and checkbox tint
-
 // ─── Theme-adaptive colours ────────────────────────────────────────────────────
 private data class TableColors(
     val screenBg: Color,
@@ -125,12 +131,9 @@ private data class TableColors(
     val headerTxt: Color,
     val rowEven: Color,
     val rowOdd: Color,
-    val rowSelected: Color,
     val cellBorder: Color,
     val indexGrey: Color,
-    val selectionBarBg: Color,
-    val cellText: Color,
-    val checkUnchecked: Color
+    val cellText: Color
 )
 
 @Composable
@@ -142,24 +145,18 @@ private fun tableColors(): TableColors {
         headerTxt     = Color(0xFFD0E4FF),
         rowEven       = Color(0xFF1A2232),
         rowOdd        = Color(0xFF151D2B),
-        rowSelected   = Color(0xFF0D3460),
         cellBorder    = Color(0xFF2A3A50),
         indexGrey     = Color(0xFF546E7A),
-        selectionBarBg= Color(0xFF0A2744),
-        cellText      = Color(0xFFCDD8E8),
-        checkUnchecked= Color(0xFF455A64)
+        cellText      = Color(0xFFCDD8E8)
     ) else TableColors(
         screenBg      = Color(0xFFEDF1FB),
         headerBg      = Color(0xFF1A2744),
         headerTxt     = Color(0xFFE8F0FE),
         rowEven       = Color(0xFFF5F8FF),
         rowOdd        = Color(0xFFEBEFF9),
-        rowSelected   = Color(0xFFD0E4FF),
         cellBorder    = Color(0xFFCDD5E0),
         indexGrey     = Color(0xFF78909C),
-        selectionBarBg= Color(0xFF0D47A1),
-        cellText      = Color(0xFF1A1A2E),
-        checkUnchecked= Color(0xFFB0BEC5)
+        cellText      = Color(0xFF1A1A2E)
     )
 }
 
@@ -182,6 +179,14 @@ fun ResultScreen(navController: NavController, qrData: String) {
     val viewModel: ResultViewModel = viewModel { ResultViewModel(qrData) }
     val state = viewModel.uiState.value
     val context = LocalContext.current
+    var showExcelViewer by remember { mutableStateOf(false) }
+
+    if (showExcelViewer && state is ResultUiState.Success) {
+        ExcelViewerDialog(
+            tableData = state.tableData,
+            onDismiss = { showExcelViewer = false }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -198,14 +203,25 @@ fun ResultScreen(navController: NavController, qrData: String) {
                 },
                 actions = {
                     if (state is ResultUiState.Success) {
+                        Button(onClick = { navController.navigate(Screen.ExcelFiles.route) }) {
+                            Text("Files")
+                        }
+                        IconButton(onClick = { showExcelViewer = true }) {
+                            Icon(
+                                imageVector = Icons.Filled.Visibility,
+                                contentDescription = "View Excel",
+                                tint = appBarContent,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
                         IconButton(onClick = {
                             try {
-                                val uri = XlsxExporter.export(
+                                XlsxExporter.saveToDownloads(
                                     context = context,
                                     tableData = state.tableData,
                                     fileName = "pallet_${state.qrCode.take(8)}.xlsx"
                                 )
-                                XlsxExporter.shareExcel(context, uri)
+                                Toast.makeText(context, "Excel saved to Downloads", Toast.LENGTH_SHORT).show()
                             } catch (e: Exception) {
                                 Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
                             }
@@ -285,12 +301,12 @@ private fun TableContent(state: ResultUiState.Success, context: Context) {
     var rawScale by remember { mutableFloatStateOf(1f) }
     val scale by animateFloatAsState(rawScale.coerceIn(0.4f, 3f), label = "scale")
     val tc = tableColors()
-
-    // Multi-select state
     var selectionMode by remember { mutableStateOf(false) }
-    var selectedIds by remember { mutableStateOf(setOf<String>()) }
-    val allIds = state.tableData.rows.map { it.palletId }
-    val allSelected = selectedIds.size == allIds.size && allIds.isNotEmpty()
+    var selectedPalletNos by remember { mutableStateOf(setOf<String>()) }
+    val selectablePalletNos = state.tableData.rows
+        .filter { it.hasApiData() && it.palletNo.isNotBlank() }
+        .map { it.palletNo }
+    val allSelected = selectablePalletNos.isNotEmpty() && selectedPalletNos.size == selectablePalletNos.size
 
     Column(Modifier.fillMaxSize()) {
         // ── Summary banner ──────────────────────────────────────────────────
@@ -303,7 +319,7 @@ private fun TableContent(state: ResultUiState.Success, context: Context) {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = "📦  ${state.tableData.rows.size} rows  •  ${TABLE_COLUMNS.size} columns",
+                text = "📦  ${state.tableData.availableRowCount()} available  •  ${TABLE_COLUMNS.size} columns",
                 color = tc.headerTxt,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 13.sp
@@ -311,49 +327,47 @@ private fun TableContent(state: ResultUiState.Success, context: Context) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Pinch to zoom", color = tc.headerTxt.copy(alpha = 0.45f), fontSize = 11.sp)
                 Spacer(Modifier.width(12.dp))
-                // Select / Done toggle
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            if (selectionMode) MaterialTheme.colorScheme.secondary else Color.White.copy(alpha = 0.15f)
-                        )
-                        .clickable {
-                            selectionMode = !selectionMode
-                            if (!selectionMode) selectedIds = emptySet()
-                        }
-                        .padding(horizontal = 12.dp, vertical = 5.dp)
-                ) {
-                    Text(
-                        text = if (selectionMode) "Done" else "Select",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    )
+                Button(onClick = {
+                    selectionMode = !selectionMode
+                    if (!selectionMode) selectedPalletNos = emptySet()
+                }) {
+                    Text(if (selectionMode) "Done" else "Select")
                 }
             }
         }
 
-        // ── Selection action bar (visible when selectionMode + ≥1 selected) ─
-        AnimatedVisibility(
-            visible = selectionMode && selectedIds.isNotEmpty(),
-            enter = expandVertically(),
-            exit = shrinkVertically()
-        ) {
-            SelectionBar(
-                selectedCount = selectedIds.size,
-                totalCount = allIds.size,
-                allSelected = allSelected,
-                selectionBarBg = tc.selectionBarBg,
-                onSelectAll = {
-                    selectedIds = if (allSelected) emptySet() else allIds.toSet()
-                },
-                onCopySelected = {
-                    val csv = selectedIds.sorted().joinToString(", ")
-                    copyText(context, csv)
-                },
-                onClearSelection = { selectedIds = emptySet() }
-            )
+        if (selectionMode) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(tc.headerBg)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "${selectedPalletNos.size} selected",
+                    color = tc.headerTxt,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Button(onClick = {
+                        selectedPalletNos = if (allSelected) emptySet() else selectablePalletNos.toSet()
+                    }) {
+                        Text(if (allSelected) "Deselect All" else "Select All")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            copyText(context, selectedPalletNos.sorted().joinToString(", "))
+                        },
+                        enabled = selectedPalletNos.isNotEmpty()
+                    ) {
+                        Text("Copy")
+                    }
+                }
+            }
         }
 
         // ── Zoomable table ──────────────────────────────────────────────────
@@ -369,118 +383,125 @@ private fun TableContent(state: ResultUiState.Success, context: Context) {
             Box(modifier = Modifier.scale(scale)) {
                 TableGrid(
                     tableData = state.tableData,
-                    selectionMode = selectionMode,
-                    selectedIds = selectedIds,
-                    allSelected = allSelected,
                     tc = tc,
+                    selectionMode = selectionMode,
+                    selectedPalletNos = selectedPalletNos,
+                    allSelected = allSelected,
                     onToggleSelectAll = {
-                        selectedIds = if (allSelected) emptySet() else allIds.toSet()
+                        selectedPalletNos = if (allSelected) emptySet() else selectablePalletNos.toSet()
                     },
-                    onToggleRow = { palletId ->
-                        selectedIds = if (selectedIds.contains(palletId)) {
-                            selectedIds - palletId
+                    onTogglePalletNo = { palletNo ->
+                        selectedPalletNos = if (selectedPalletNos.contains(palletNo)) {
+                            selectedPalletNos - palletNo
                         } else {
-                            selectedIds + palletId
+                            selectedPalletNos + palletNo
                         }
                     },
-                    onCopyRow = { id -> copyText(context, id) },
-                    onCopyCell = { v -> copyText(context, v) }
+                    onCopyPalletNo = { palletNo -> copyText(context, palletNo) },
+                    onCopyRow = { row -> copyText(context, row.copyValue()) }
                 )
             }
         }
     }
 }
 
-// ─── Selection action bar ──────────────────────────────────────────────────────
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SelectionBar(
-    selectedCount: Int,
-    totalCount: Int,
-    allSelected: Boolean,
-    selectionBarBg: Color,
-    onSelectAll: () -> Unit,
-    onCopySelected: () -> Unit,
-    onClearSelection: () -> Unit
+private fun ExcelViewerDialog(
+    tableData: TableData,
+    onDismiss: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(selectionBarBg)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        // Left: count + clear
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
+        ExcelViewerScaffold(
+            title = "Excel Viewer",
+            tableData = tableData,
+            onClose = onDismiss
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ExcelViewerScaffold(
+    title: String,
+    tableData: TableData,
+    onClose: () -> Unit
+) {
+    val context = LocalContext.current
+    val tc = tableColors()
+    ConfigureSystemBars(
+        statusBarColor = tc.headerBg,
+        lightIcons = tc.headerBg.luminance() < 0.5f
+    )
+    var rawScale by remember { mutableFloatStateOf(1f) }
+    val scale by animateFloatAsState(rawScale.coerceIn(0.4f, 3f), label = "viewerScale")
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = tc.screenBg
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = title,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Filled.Close, contentDescription = "Close")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = tc.headerBg,
+                    titleContentColor = tc.headerTxt,
+                    navigationIconContentColor = tc.headerTxt
+                )
+            )
+
+            Row(
                 modifier = Modifier
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.15f))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .fillMaxWidth()
+                    .background(tc.headerBg)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "$selectedCount / $totalCount selected",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
+                    text = "📦  ${tableData.availableRowCount()} available  •  ${TABLE_COLUMNS.size} columns",
+                    color = tc.headerTxt,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 13.sp
                 )
-            }
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = "Clear",
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 12.sp,
-                modifier = Modifier
-                    .clickable { onClearSelection() }
-                    .padding(4.dp)
-            )
-        }
-
-        // Right: Select All + Copy
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // Select All toggle
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable { onSelectAll() }
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Icon(
-                    imageVector = if (allSelected) Icons.Filled.CheckBox else Icons.Filled.SelectAll,
-                    contentDescription = "Select All",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    text = if (allSelected) "Deselect All" else "Select All",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Text("Pinch to zoom", color = tc.headerTxt.copy(alpha = 0.45f), fontSize = 11.sp)
             }
 
-            Spacer(Modifier.width(8.dp))
-
-            // Copy selected (comma-separated)
-            Button(
-                onClick = onCopySelected,
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.secondary,
-                    contentColor = MaterialTheme.colorScheme.onSecondary
-                ),
-                modifier = Modifier.height(34.dp)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, _, zoom, _ ->
+                            rawScale = (rawScale * zoom).coerceIn(0.4f, 3f)
+                        }
+                    }
             ) {
-                Icon(
-                    imageVector = Icons.Filled.ContentCopy,
-                    contentDescription = "Copy",
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(Modifier.width(4.dp))
-                Text("Copy IDs", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Box(modifier = Modifier.scale(scale)) {
+                    TableGrid(
+                        tableData = tableData,
+                        tc = tc,
+                        selectionMode = false,
+                        selectedPalletNos = emptySet(),
+                        allSelected = false,
+                        onToggleSelectAll = {},
+                        onTogglePalletNo = {},
+                        onCopyPalletNo = { palletNo -> copyText(context, palletNo) },
+                        onCopyRow = { row -> copyText(context, row.copyValue()) }
+                    )
+                }
             }
         }
     }
@@ -491,14 +512,14 @@ private fun SelectionBar(
 @Composable
 private fun TableGrid(
     tableData: TableData,
-    selectionMode: Boolean,
-    selectedIds: Set<String>,
-    allSelected: Boolean,
     tc: TableColors,
+    selectionMode: Boolean,
+    selectedPalletNos: Set<String>,
+    allSelected: Boolean,
     onToggleSelectAll: () -> Unit,
-    onToggleRow: (String) -> Unit,
-    onCopyRow: (String) -> Unit,
-    onCopyCell: (String) -> Unit
+    onTogglePalletNo: (String) -> Unit,
+    onCopyPalletNo: (String) -> Unit,
+    onCopyRow: (TableRow) -> Unit
 ) {
     val hScroll = rememberScrollState()
 
@@ -510,11 +531,17 @@ private fun TableGrid(
                 .background(tc.headerBg)
         ) {
             if (selectionMode) {
-                CheckboxHeaderCell(allSelected = allSelected, tc = tc, onToggle = onToggleSelectAll)
+                CheckboxCell(
+                    checked = allSelected,
+                    enabled = tableData.rows.any { it.hasApiData() && it.palletNo.isNotBlank() },
+                    tc = tc,
+                    height = HDR_H,
+                    onClick = onToggleSelectAll
+                )
             }
             HeaderCell(text = "#", width = IDX_W, tc = tc)
             TABLE_COLUMNS.forEach { (header, _) -> HeaderCell(text = header, width = CELL_W, tc = tc) }
-            HeaderCell(text = "Copy ID", width = ACT_W, tc = tc)
+            HeaderCell(text = "Copy", width = ACT_W, tc = tc)
         }
 
         // ── Data rows ──
@@ -524,13 +551,13 @@ private fun TableGrid(
                     index = idx + 1,
                     row = row,
                     isEven = idx % 2 == 0,
-                    selectionMode = selectionMode,
-                    isSelected = selectedIds.contains(row.palletId),
                     tc = tc,
                     hScroll = hScroll,
-                    onToggleSelect = { onToggleRow(row.palletId) },
-                    onCopyRow = onCopyRow,
-                    onCopyCell = onCopyCell
+                    selectionMode = selectionMode,
+                    isSelected = selectedPalletNos.contains(row.palletNo),
+                    onTogglePalletNo = { onTogglePalletNo(row.palletNo) },
+                    onCopyPalletNo = { onCopyPalletNo(row.palletNo) },
+                    onCopyRow = { onCopyRow(row) }
                 )
             }
         }
@@ -538,25 +565,6 @@ private fun TableGrid(
 }
 
 // ─── Header cells ──────────────────────────────────────────────────────────────
-
-@Composable
-private fun CheckboxHeaderCell(allSelected: Boolean, tc: TableColors, onToggle: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .width(CHK_W)
-            .height(HDR_H)
-            .border(0.5.dp, tc.headerTxt.copy(alpha = 0.2f))
-            .clickable { onToggle() },
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = if (allSelected) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
-            contentDescription = "Select All",
-            tint = if (allSelected) MaterialTheme.colorScheme.secondary else tc.headerTxt.copy(alpha = 0.7f),
-            modifier = Modifier.size(22.dp)
-        )
-    }
-}
 
 @Composable
 private fun HeaderCell(text: String, width: Dp, tc: TableColors) {
@@ -580,6 +588,33 @@ private fun HeaderCell(text: String, width: Dp, tc: TableColors) {
     }
 }
 
+@Composable
+private fun CheckboxCell(
+    checked: Boolean,
+    enabled: Boolean,
+    tc: TableColors,
+    height: Dp,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .width(CHK_W)
+            .height(height)
+            .border(0.5.dp, tc.cellBorder)
+            .then(if (enabled) Modifier.clickable { onClick() } else Modifier),
+        contentAlignment = Alignment.Center
+    ) {
+        if (enabled) {
+            Icon(
+                imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
+                contentDescription = "Select",
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
+}
+
 // ─── Data row ──────────────────────────────────────────────────────────────────
 
 @Composable
@@ -587,19 +622,16 @@ private fun DataRow(
     index: Int,
     row: TableRow,
     isEven: Boolean,
-    selectionMode: Boolean,
-    isSelected: Boolean,
     tc: TableColors,
     hScroll: ScrollState,
-    onToggleSelect: () -> Unit,
-    onCopyRow: (String) -> Unit,
-    onCopyCell: (String) -> Unit
+    selectionMode: Boolean,
+    isSelected: Boolean,
+    onTogglePalletNo: () -> Unit,
+    onCopyPalletNo: () -> Unit,
+    onCopyRow: () -> Unit
 ) {
-    val bg = when {
-        isSelected -> tc.rowSelected
-        isEven     -> tc.rowEven
-        else       -> tc.rowOdd
-    }
+    val bg = if (isEven) tc.rowEven else tc.rowOdd
+    val hasApiData = row.hasApiData()
 
     Row(
         modifier = Modifier
@@ -607,26 +639,16 @@ private fun DataRow(
             .background(bg),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // ── Checkbox cell ──
         if (selectionMode) {
-            Box(
-                modifier = Modifier
-                    .width(CHK_W)
-                    .height(CELL_H)
-                    .border(0.5.dp, tc.cellBorder)
-                    .clickable { onToggleSelect() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (isSelected) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
-                    contentDescription = "Select row",
-                    tint = if (isSelected) PalletBlue else tc.checkUnchecked,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
+            CheckboxCell(
+                checked = isSelected,
+                enabled = hasApiData && row.palletNo.isNotBlank(),
+                tc = tc,
+                height = CELL_H,
+                onClick = onTogglePalletNo
+            )
         }
 
-        // ── Row index ──
         Box(
             modifier = Modifier
                 .width(IDX_W)
@@ -639,7 +661,7 @@ private fun DataRow(
 
         // ── Data cells ──
         TABLE_COLUMNS.forEachIndexed { colIdx, (_, accessor) ->
-            val value = accessor(row)
+            val value = if (hasApiData) accessor(row) else ""
             Box(
                 modifier = Modifier
                     .width(CELL_W)
@@ -647,12 +669,28 @@ private fun DataRow(
                     .border(0.5.dp, tc.cellBorder),
                 contentAlignment = Alignment.CenterStart
             ) {
-                if (colIdx == 0) { // palletId is the first column
-                    PalletChip(
-                        palletId = value,
-                        isSelected = isSelected,
-                        onCopy = { onCopyCell(value) }
-                    )
+                if (colIdx == 0 && hasApiData) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(start = 8.dp, end = 4.dp)
+                    ) {
+                        Text(
+                            text = value,
+                            fontSize = 12.sp,
+                            color = tc.cellText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = onCopyPalletNo, modifier = Modifier.size(30.dp)) {
+                            Icon(
+                                imageVector = Icons.Filled.ContentCopy,
+                                contentDescription = "Copy pallet no",
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 } else {
                     Text(
                         text = value,
@@ -666,7 +704,6 @@ private fun DataRow(
             }
         }
 
-        // ── Copy row action ──
         Box(
             modifier = Modifier
                 .width(ACT_W)
@@ -674,72 +711,24 @@ private fun DataRow(
                 .border(0.5.dp, tc.cellBorder),
             contentAlignment = Alignment.Center
         ) {
-            IconButton(onClick = { onCopyRow(row.palletId) }, modifier = Modifier.size(34.dp)) {
-                Icon(
-                    imageVector = Icons.Filled.ContentCopy,
-                    contentDescription = "Copy Pallet ID",
-                    tint = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.size(18.dp)
-                )
+            if (hasApiData) {
+                IconButton(onClick = onCopyRow, modifier = Modifier.size(34.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.ContentCopy,
+                        contentDescription = "Copy row",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
     }
 }
-
-// ─── Pallet ID chip ────────────────────────────────────────────────────────────
-
-@Composable
-private fun PalletChip(palletId: String, isSelected: Boolean, onCopy: () -> Unit) {
-    val isDark = isSystemInDarkTheme()
-    // Dark mode: bright accent text (readable on dark row bg)
-    // Light mode: classic navy blue
-    val chipAccent = if (isDark) MaterialTheme.colorScheme.secondary else PalletBlue
-    val chipBg     = chipAccent.copy(alpha = if (isSelected) 0.25f else 0.12f)
-
-    Row(
-        modifier = Modifier
-            .padding(horizontal = 6.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(chipBg)
-            .padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = palletId,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = chipAccent,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 92.dp)
-        )
-        Spacer(Modifier.width(4.dp))
-        Box(
-            modifier = Modifier
-                .size(22.dp)
-                .clip(CircleShape)
-                .background(chipAccent),
-            contentAlignment = Alignment.Center
-        ) {
-            IconButton(onClick = onCopy, modifier = Modifier.size(22.dp)) {
-                Icon(
-                    imageVector = Icons.Filled.ContentCopy,
-                    contentDescription = "Copy",
-                    tint = Color.White,
-                    modifier = Modifier.size(12.dp)
-                )
-            }
-        }
-    }
-}
-
-// ─── Clipboard ───────────────────────────────────────────────────────────────────
 
 private fun copyText(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    cm.setPrimaryClip(ClipData.newPlainText("Pallet", text))
-    val display = if (text.length > 60) text.take(60) + "…" else text
-    Toast.makeText(context, "Copied: $display", Toast.LENGTH_SHORT).show()
+    cm.setPrimaryClip(ClipData.newPlainText("Row", text))
+    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
 }
 
 // ─── Previews ───────────────────────────────────────────────────────────────────
@@ -751,10 +740,6 @@ private fun ResultScreenLightPreview() {
         Surface {
             val mockTable = buildPreviewTableData()
             val tc = tableColors()
-            var selectionMode by remember { mutableStateOf(false) }
-            var selectedIds by remember { mutableStateOf(setOf<String>()) }
-            val allIds = mockTable.rows.map { it.palletId }
-            val allSelected = selectedIds.size == allIds.size && allIds.isNotEmpty()
             Column(Modifier.fillMaxSize().background(tc.screenBg)) {
                 Row(
                     modifier = Modifier.fillMaxWidth().background(tc.headerBg)
@@ -762,24 +747,20 @@ private fun ResultScreenLightPreview() {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("📦  ${mockTable.rows.size} rows  •  ${TABLE_COLUMNS.size} columns",
+                    Text("📦  ${mockTable.availableRowCount()} available  •  ${TABLE_COLUMNS.size} columns",
                         color = tc.headerTxt, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     Text("Pinch to zoom", color = tc.headerTxt.copy(alpha = 0.45f), fontSize = 11.sp)
                 }
                 TableGrid(
                     tableData = mockTable,
-                    selectionMode = selectionMode,
-                    selectedIds = selectedIds,
-                    allSelected = allSelected,
                     tc = tc,
-                    onToggleSelectAll = {
-                        selectedIds = if (allSelected) emptySet() else allIds.toSet()
-                    },
-                    onToggleRow = { id ->
-                        selectedIds = if (selectedIds.contains(id)) selectedIds - id else selectedIds + id
-                    },
-                    onCopyRow = {},
-                    onCopyCell = {}
+                    selectionMode = false,
+                    selectedPalletNos = emptySet(),
+                    allSelected = false,
+                    onToggleSelectAll = {},
+                    onTogglePalletNo = {},
+                    onCopyPalletNo = {},
+                    onCopyRow = {}
                 )
             }
         }
@@ -794,10 +775,6 @@ private fun ResultScreenDarkPreview() {
         Surface {
             val mockTable = buildPreviewTableData()
             val tc = tableColors()
-            var selectionMode by remember { mutableStateOf(false) }
-            var selectedIds by remember { mutableStateOf(setOf<String>()) }
-            val allIds = mockTable.rows.map { it.palletId }
-            val allSelected = selectedIds.size == allIds.size && allIds.isNotEmpty()
             Column(Modifier.fillMaxSize().background(tc.screenBg)) {
                 Row(
                     modifier = Modifier.fillMaxWidth().background(tc.headerBg)
@@ -805,24 +782,20 @@ private fun ResultScreenDarkPreview() {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("📦  ${mockTable.rows.size} rows  •  ${TABLE_COLUMNS.size} columns",
+                    Text("📦  ${mockTable.availableRowCount()} available  •  ${TABLE_COLUMNS.size} columns",
                         color = tc.headerTxt, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     Text("Pinch to zoom", color = tc.headerTxt.copy(alpha = 0.45f), fontSize = 11.sp)
                 }
                 TableGrid(
                     tableData = mockTable,
-                    selectionMode = selectionMode,
-                    selectedIds = selectedIds,
-                    allSelected = allSelected,
                     tc = tc,
-                    onToggleSelectAll = {
-                        selectedIds = if (allSelected) emptySet() else allIds.toSet()
-                    },
-                    onToggleRow = { id ->
-                        selectedIds = if (selectedIds.contains(id)) selectedIds - id else selectedIds + id
-                    },
-                    onCopyRow = {},
-                    onCopyCell = {}
+                    selectionMode = false,
+                    selectedPalletNos = emptySet(),
+                    allSelected = false,
+                    onToggleSelectAll = {},
+                    onTogglePalletNo = {},
+                    onCopyPalletNo = {},
+                    onCopyRow = {}
                 )
             }
         }

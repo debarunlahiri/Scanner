@@ -318,7 +318,7 @@ private fun ScanOverlay(
                         modifier = Modifier.weight(1f),
                         label = {
                             Text(
-                                text = "Pallet ID",
+                                text = "Bin ID",
                                 color = Color.White.copy(alpha = 0.7f)
                             )
                         },

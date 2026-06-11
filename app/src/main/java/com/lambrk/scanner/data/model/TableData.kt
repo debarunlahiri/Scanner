@@ -1,15 +1,13 @@
 package com.lambrk.scanner.data.model
 
 data class TableRow(
-    val palletId: String,
-    val sku: String,
-    val description: String,
+    val palletNo: String,
+    val binId: String,
+    val productCode: String,
     val qty: String,
-    val weight: String,
-    val location: String,
-    val status: String,
-    val scanTime: String,
-    val userId: String
+    val date: String,
+    val hReason: String,
+    val grade: String
 )
 
 data class TableData(
