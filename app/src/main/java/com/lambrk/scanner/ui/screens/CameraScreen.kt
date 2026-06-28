@@ -1,6 +1,8 @@
 package com.lambrk.scanner.ui.screens
 
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,12 +38,14 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -93,10 +97,32 @@ fun CameraScreen(navController: NavController) {
     }
     var hasNavigated by remember { mutableStateOf(false) }
     var palletId by remember { mutableStateOf("") }
+    var connectedDeviceName by remember { mutableStateOf<String?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted -> hasPermission = granted }
+
+    val bluetoothScannerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data
+                ?.getStringExtra(BLUETOOTH_SCAN_RESULT_KEY)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { palletId = it }
+        }
+    }
+
+    fun submitScan(value: String) {
+        if (value.isNotBlank() && !hasNavigated) {
+            hasNavigated = true
+            val encoded = java.net.URLEncoder.encode(value.trim(), "UTF-8")
+            navController.navigate(Screen.Result.createRoute(encoded)) {
+                popUpTo(Screen.Camera.route) { inclusive = true }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (!hasPermission) {
@@ -125,21 +151,20 @@ fun CameraScreen(navController: NavController) {
             ScanOverlay(
                 palletId = palletId,
                 onPalletIdChange = { palletId = it },
-                onSubmit = { id ->
-                    if (id.isNotBlank() && !hasNavigated) {
-                        hasNavigated = true
-                        val encoded = java.net.URLEncoder.encode(id.trim(), "UTF-8")
-                        navController.navigate(Screen.Result.createRoute(encoded)) {
-                            popUpTo(Screen.Camera.route) { inclusive = true }
-                        }
-                    }
-                }
+                onSubmit = ::submitScan,
+                onBluetoothClick = {
+                    bluetoothScannerLauncher.launch(
+                        Intent(context, BluetoothScannerActivity::class.java)
+                    )
+                },
+                connectedDeviceName = connectedDeviceName
             )
         } else {
             PermissionDeniedContent(onRequest = {
                 permissionLauncher.launch(Manifest.permission.CAMERA)
             })
         }
+
     }
 }
 
@@ -192,10 +217,28 @@ private fun CameraPreview(onQrDetected: (String) -> Unit) {
 private fun ScanOverlay(
     palletId: String,
     onPalletIdChange: (String) -> Unit,
-    onSubmit: (String) -> Unit
+    onSubmit: (String) -> Unit,
+    onBluetoothClick: () -> Unit,
+    connectedDeviceName: String?
 ) {
     val scanSize = 260.dp
     val focusManager = LocalFocusManager.current
+
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
+        IconButton(
+            onClick = onBluetoothClick,
+            modifier = Modifier
+                .padding(top = 42.dp, end = 16.dp)
+                .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                .size(48.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Bluetooth,
+                contentDescription = "Connect Bluetooth scanner",
+                tint = if (connectedDeviceName == null) Color.White else MaterialTheme.colorScheme.secondary
+            )
+        }
+    }
 
     // Scanning frame
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -432,7 +475,9 @@ private fun CameraScreenLightPreview() {
             ScanOverlay(
                 palletId = palletId,
                 onPalletIdChange = { palletId = it },
-                onSubmit = {}
+                onSubmit = {},
+                onBluetoothClick = {},
+                connectedDeviceName = null
             )
         }
     }
@@ -461,7 +506,9 @@ private fun CameraScreenDarkPreview() {
             ScanOverlay(
                 palletId = palletId,
                 onPalletIdChange = { palletId = it },
-                onSubmit = {}
+                onSubmit = {},
+                onBluetoothClick = {},
+                connectedDeviceName = null
             )
         }
     }
@@ -487,7 +534,9 @@ private fun CameraScreenFilledPreview() {
             ScanOverlay(
                 palletId = "BIN-20481",
                 onPalletIdChange = {},
-                onSubmit = {}
+                onSubmit = {},
+                onBluetoothClick = {},
+                connectedDeviceName = "Scanner"
             )
         }
     }
